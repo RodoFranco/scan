@@ -49,10 +49,10 @@ function onScanSuccess(decodedText){
   if(busy || decodedText===lastText)return;
   lastText=decodedText;busy=true;
   status('QR DETECTADO — VALIDANDO...');
+  resultEl.innerHTML='<h2>QR DETECTADO</h2><p>Validando autorización y registrando ingreso...</p>';
+  resultEl.style.display='block';
   if(running && scanner){scanner.stop().then(()=>{try{scanner.clear()}catch(e){};running=false;}).catch(()=>{});}
   startBtn.classList.remove('hidden');stopBtn.classList.add('hidden');
-  resultEl.innerHTML='<h2>QR DETECTADO</h2><p>Validando acceso...</p>';
-  resultEl.style.display='block';
   // El QR generado por Apps Script ya contiene el enlace seguro de check-in.
   // Al abrirlo, Code.gs valida el token y registra el ingreso en Google Sheets.
   if(/^https?:\/\//i.test(decodedText)){

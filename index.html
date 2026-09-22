@@ -20,46 +20,65 @@
 <p class="small">Al leer un QR válido, el sistema abrirá el enlace seguro de acceso y registrará el ingreso en Google Sheets.</p>
 </div>
 <script>
-let scanner=null;
-let running=false;
-let lastText='';
-let busy=false;
+let scanner=null, running=false, lastText='', busy=false;
+const APPS_SCRIPT_URL='https://script.google.com/macros/s/AKfycbza0qWrhpg38dAAivIzfqhoZmkn-CqJHDkXDnTmrPsAi8hn4_kUhdfI5luFGmw-n45x/exec';
 const statusEl=document.getElementById('status');
 const resultEl=document.getElementById('result');
 const startBtn=document.getElementById('startBtn');
 const stopBtn=document.getElementById('stopBtn');
 function status(t,type){statusEl.textContent=t;statusEl.className='status'+(type?' '+type:'')}
+function escapeHtml(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function startScanner(){
   if(running)return;
-  resultEl.style.display='none';
-  status('Solicitando acceso a la cámara...');
+  resultEl.style.display='none'; busy=false;
+  status('SOLICITANDO ACCESO A LA CÁMARA...');
   scanner=new Html5Qrcode('reader');
   scanner.start({facingMode:{exact:'environment'}},{fps:10,qrbox:{width:260,height:260}},onScanSuccess,()=>{})
   .then(()=>{running=true;startBtn.classList.add('hidden');stopBtn.classList.remove('hidden');status('CÁMARA ACTIVA — APUNTE AL QR');})
-  .catch(()=>{
-    scanner=null;
-    status('No se pudo abrir la cámara. Revise el permiso de cámara y use HTTPS.', 'err');
-  });
+  .catch(()=>{scanner=null;status('NO SE PUDO ABRIR LA CÁMARA. REVISE EL PERMISO Y USE HTTPS.','err');});
 }
 function stopScanner(){
-  if(!scanner){return}
-  scanner.stop().then(()=>{try{scanner.clear()}catch(e){};scanner=null;running=false;startBtn.classList.remove('hidden');stopBtn.classList.add('hidden');status('Escáner detenido.');}).catch(()=>{});
+  if(!scanner)return;
+  scanner.stop().then(()=>{try{scanner.clear()}catch(e){};scanner=null;running=false;startBtn.classList.remove('hidden');stopBtn.classList.add('hidden');status('ESCÁNER DETENIDO.');}).catch(()=>{});
 }
 function onScanSuccess(decodedText){
   if(busy || decodedText===lastText)return;
-  lastText=decodedText;busy=true;
+  lastText=decodedText; busy=true;
   status('QR DETECTADO — VALIDANDO...');
-  resultEl.innerHTML='<h2>QR DETECTADO</h2><p>Validando autorización y registrando ingreso...</p>';
+  resultEl.innerHTML='<h2>QR DETECTADO</h2><p>VALIDANDO AUTORIZACIÓN...</p>'; resultEl.style.display='block';
+  if(scanner){scanner.stop().then(()=>{try{scanner.clear()}catch(e){};scanner=null;running=false;startBtn.classList.remove('hidden');stopBtn.classList.add('hidden');}).catch(()=>{});}
+
+  let u;
+  try{u=new URL(decodedText);}catch(e){showResult({ok:false,code:'INVALIDO',mensaje:'QR INVÁLIDO: NO CONTIENE UN ENLACE VÁLIDO.'});return;}
+  const id=u.searchParams.get('id');
+  const token=u.searchParams.get('token');
+  if(!id||!token){showResult({ok:false,code:'INVALIDO',mensaje:'QR INVÁLIDO: FALTAN DATOS DE ACCESO.'});return;}
+
+  const cb='qrResult_'+Date.now();
+  window[cb]=function(data){
+    try{delete window[cb]}catch(e){}
+    const tag=document.getElementById(cb); if(tag) tag.remove();
+    showResult(data);
+  };
+  const tag=document.createElement('script'); tag.id=cb;
+  tag.src=APPS_SCRIPT_URL+'?page=scanapi&id='+encodeURIComponent(id)+'&token='+encodeURIComponent(token)+'&callback='+encodeURIComponent(cb)+'&_='+Date.now();
+  tag.onerror=function(){try{delete window[cb]}catch(e){};tag.remove();showResult({ok:false,code:'ERROR_RED',mensaje:'NO FUE POSIBLE COMUNICARSE CON EL SERVIDOR. REVISE INTERNET.'});};
+  document.body.appendChild(tag);
+}
+function showResult(data){
+  busy=false;
+  const ok=!!data.ok;
+  status(data.mensaje || (ok?'ACCESO AUTORIZADO':'ACCESO NO AUTORIZADO'),ok?'ok':'err');
+  let title=ok?'✓ ACCESO AUTORIZADO':(data.code==='YA_INGRESADO'?'⚠ QR YA UTILIZADO':'✕ '+(data.mensaje||'QR INVÁLIDO'));
+  resultEl.innerHTML='<h2>'+escapeHtml(title)+'</h2>'+
+    (data.nombre?'<p><b>'+escapeHtml(data.nombre)+'</b></p>':'')+
+    (data.empresa?'<p>'+escapeHtml(data.empresa)+'</p>':'')+
+    (data.tipo?'<p><b>'+escapeHtml(data.tipo)+'</b></p>':'')+
+    (data.id?'<p>ID: '+escapeHtml(data.id)+'</p>':'')+
+    '<p>'+escapeHtml(data.mensaje||'')+'</p>';
   resultEl.style.display='block';
-  if(running && scanner){scanner.stop().then(()=>{try{scanner.clear()}catch(e){};running=false;}).catch(()=>{});}
-  startBtn.classList.remove('hidden');stopBtn.classList.add('hidden');
-  // El QR generado por Apps Script ya contiene el enlace seguro de check-in.
-  // Al abrirlo, Code.gs valida el token y registra el ingreso en Google Sheets.
-  if(/^https?:\/\//i.test(decodedText)){
-    window.location.href=decodedText;
-  }else{
-    busy=false;status('QR no válido: no contiene un enlace.', 'err');
-  }
+  // Preparar inmediatamente el siguiente escaneo.
+  setTimeout(()=>{lastText='';status('LISTO PARA EL SIGUIENTE ESCANEO.');startScanner();},1800);
 }
 </script>
 </body>
